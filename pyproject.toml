@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ai-seo-platform"
 version = "0.1.0"
-description = "AI Visibility Intelligence for SaaS Founders"
+description = "Track and optimize your brand's visibility across AI search engines"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

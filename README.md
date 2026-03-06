@@ -1,23 +1,23 @@
-# GEOkit
+# AI SEO Platform
 
-**AI Visibility Intelligence for SaaS Founders**
+**Track and optimize your brand's visibility across AI search engines**
 
 Track how ChatGPT, Perplexity, Gemini, and Claude talk about your product — and find opportunities to get visible.
 
 ## Why?
 
-AI search engines are the new discovery channel. If ChatGPT doesn't recommend your product when someone asks "best [your category] tools", you're invisible to a growing audience. GEOkit tells you exactly where you stand — and what to fix.
+AI search engines are the new discovery channel. If ChatGPT doesn't recommend your product when someone asks "best [your category] tools", you're invisible to a growing audience. AI SEO Platform tells you exactly where you stand — and what to fix.
 
 ## Quick Start
 
 ```bash
-pip install geokit
+pip install aiseo
 
 # Set at least one LLM API key
-export GEOKIT_OPENAI_API_KEY=sk-...
+export AISEO_OPENAI_API_KEY=sk-...
 
 # Scan your site
-geokit scan https://yoursite.com
+aiseo scan https://yoursite.com
 ```
 
 Or run with Docker:
@@ -32,7 +32,7 @@ Then open `http://localhost:3000` for the dashboard, or `http://localhost:8000/d
 
 ## Features
 
-- **Auto Brand Detection** — paste a URL, GEOkit extracts brand name, competitors, features, and category
+- **Auto Brand Detection** — paste a URL, AI SEO Platform extracts brand name, competitors, features, and category
 - **Multi-LLM Scanning** — checks visibility across ChatGPT, Perplexity, Gemini, and Claude
 - **AI Visibility Score** — 0-100, broken down by LLM and query intent category
 - **Opportunity Engine** — prioritized visibility gaps ranked by search volume x impact
@@ -42,7 +42,7 @@ Then open `http://localhost:3000` for the dashboard, or `http://localhost:8000/d
 
 ## How It Works
 
-1. **Paste URL** — GEOkit scrapes your site and uses an LLM to extract brand profile, competitors, and features
+1. **Paste URL** — AI SEO Platform scrapes your site and uses an LLM to extract brand profile, competitors, and features
 2. **Generate Queries** — auto-generates 50+ buyer-intent queries across 4 categories: discovery, comparison, problem, recommendation
 3. **Scan LLMs** — sends each query to configured LLM providers with web search enabled
 4. **Detect Mentions** — fuzzy-matches your brand name (and aliases) in every response, extracts position, sentiment, citations
@@ -89,25 +89,25 @@ GET    /api/v1/projects/:id/history   Scan history
 
 ## Configuration
 
-All settings are via environment variables (prefix `GEOKIT_`). Copy `.env.example` to `.env`:
+All settings are via environment variables (prefix `AISEO_`). Copy `.env.example` to `.env`:
 
 ```bash
 # LLM Provider Keys (all optional — use what you have)
-GEOKIT_OPENAI_API_KEY=
-GEOKIT_ANTHROPIC_API_KEY=
-GEOKIT_GOOGLE_API_KEY=
-GEOKIT_PERPLEXITY_API_KEY=
+AISEO_OPENAI_API_KEY=
+AISEO_ANTHROPIC_API_KEY=
+AISEO_GOOGLE_API_KEY=
+AISEO_PERPLEXITY_API_KEY=
 
 # Search Volume (optional)
-GEOKIT_SEMRUSH_API_KEY=
-GEOKIT_AHREFS_API_KEY=
+AISEO_SEMRUSH_API_KEY=
+AISEO_AHREFS_API_KEY=
 
 # Infrastructure
-GEOKIT_DATABASE_URL=sqlite:///geokit.db
-GEOKIT_REDIS_URL=redis://localhost:6379/0
+AISEO_DATABASE_URL=sqlite:///aiseo.db
+AISEO_REDIS_URL=redis://localhost:6379/0
 ```
 
-GEOkit works with whatever keys you provide. Only have an OpenAI key? It'll scan ChatGPT only. Add more keys to scan more LLMs.
+AI SEO Platform works with whatever keys you provide. Only have an OpenAI key? It'll scan ChatGPT only. Add more keys to scan more LLMs.
 
 ## Development
 
@@ -133,7 +133,7 @@ pytest
 
 ## vs Paid Tools
 
-| Feature | GEOkit | Otterly.AI ($29/mo) | GenRank ($49/mo) | SE Visible |
+| Feature | AI SEO Platform | Otterly.AI ($29/mo) | GenRank ($49/mo) | SE Visible |
 |---------|--------|---------------------|------------------|------------|
 | Open Source | Yes | No | No | No |
 | Auto Brand Detection | Yes | No | No | No |
