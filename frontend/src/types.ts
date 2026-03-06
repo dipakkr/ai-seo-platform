@@ -49,8 +49,32 @@ export interface ScanResult {
   competitors_mentioned: string[]
   citations: string[]
   brand_cited: boolean
+  brands_ranked: BrandRankingEntry[]
   response_tokens: number | null
   latency_ms: number | null
+}
+
+export interface BrandRankingEntry {
+  name: string
+  position: number | null
+  is_your_brand: boolean
+}
+
+export interface AggregatedBrandRank {
+  name: string
+  avg_position: number
+  mention_count: number
+  providers: string[]
+  is_your_brand: boolean
+}
+
+export interface QueryRankings {
+  query_id: number
+  query_text: string
+  intent_category: string
+  search_volume: number | null
+  rankings: AggregatedBrandRank[]
+  per_provider: Record<string, BrandRankingEntry[]>
 }
 
 export interface Opportunity {

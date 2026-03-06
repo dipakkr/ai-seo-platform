@@ -12,6 +12,7 @@ from aiseo.api.schemas import (
     SingleQueryResultResponse,
     SingleQueryScanResponse,
 )
+from aiseo.config import get_request_api_key_override
 from aiseo.models.base import get_session
 from aiseo.models.project import Project
 from aiseo.models.query import Query
@@ -34,6 +35,19 @@ def _redis_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def _has_request_api_key_overrides() -> bool:
+    """Check whether API keys were supplied on this request via headers."""
+    return any(
+        get_request_api_key_override(name)
+        for name in (
+            "openai_api_key",
+            "anthropic_api_key",
+            "google_api_key",
+            "perplexity_api_key",
+        )
+    )
 
 
 @router.post(
@@ -75,7 +89,7 @@ async def trigger_scan(
     scan_id = scan.id
 
     # Try Celery dispatch only if Redis is available
-    if _redis_available():
+    if _redis_available() and not _has_request_api_key_overrides():
         try:
             from aiseo.tasks.scan_task import run_scan_task
 

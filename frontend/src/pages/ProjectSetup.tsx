@@ -27,66 +27,74 @@ export default function ProjectSetup() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          AI Visibility Scanner
+    <div className="max-w-4xl mx-auto space-y-6">
+      <section className="surface p-8">
+        <p className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">Get Started</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-900">
+          Create Your First Visibility Project
         </h1>
-        <p className="text-gray-500">
-          Paste your website URL to see how visible your brand is across ChatGPT, Perplexity, Gemini, and Claude.
+        <p className="mt-2 text-sm text-neutral-500 max-w-2xl">
+          GEOkit profiles your product, generates AI-search queries, then scans ChatGPT, Perplexity,
+          Gemini, and Claude to map your brand rank against competitors.
         </p>
-      </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
-          Website URL
-        </label>
-        <div className="flex gap-3">
-          <input
-            id="url"
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://yourproduct.com"
-            required
-            disabled={loading}
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={loading || !url.trim()}
-            className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? 'Analyzing...' : 'Scan'}
-          </button>
-        </div>
-
-        {error && (
-          <p className="mt-3 text-sm text-red-600">{error}</p>
-        )}
-
-        {loading && (
-          <div className="mt-6">
-            <LoadingSpinner text="Extracting brand profile and generating queries..." />
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <label htmlFor="url" className="block text-sm font-medium text-neutral-700">
+            Product URL
+          </label>
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              id="url"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://yourproduct.com"
+              required
+              disabled={loading}
+              className="flex-1 h-11 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-neutral-900"
+            />
+            <button
+              type="submit"
+              disabled={loading || !url.trim()}
+              className="btn-primary h-11 px-5 rounded-md text-sm font-medium disabled:opacity-50"
+            >
+              {loading ? 'Creating...' : 'Create Project'}
+            </button>
           </div>
-        )}
-      </form>
 
-      <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { title: 'Auto-detect brand', desc: 'Extracts name, category, competitors, and features from your site.' },
-          { title: 'Generate queries', desc: 'Creates buyer-intent queries people ask AI search engines.' },
-          { title: 'Scan & score', desc: 'Checks visibility across 4 LLMs and ranks opportunities.' },
-        ].map((step, i) => (
-          <div key={i} className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-xs font-bold mb-2">
-              {i + 1}
+          {error && <p className="text-sm text-red-700">{error}</p>}
+
+          {loading && (
+            <div className="surface-muted mt-4">
+              <LoadingSpinner text="Extracting profile and building initial query set..." />
             </div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-1">{step.title}</h3>
-            <p className="text-xs text-gray-500 leading-relaxed">{step.desc}</p>
-          </div>
-        ))}
-      </div>
+          )}
+        </form>
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <FeatureCard
+          title="Brand Modeling"
+          body="Extracts brand narrative, category, features, and competitor set from your site."
+        />
+        <FeatureCard
+          title="Query Intelligence"
+          body="Generates discovery, comparison, problem, and recommendation prompts to track."
+        />
+        <FeatureCard
+          title="Rank Monitoring"
+          body="Tracks multi-provider ranking positions and visibility gaps over time."
+        />
+      </section>
     </div>
+  )
+}
+
+function FeatureCard({ title, body }: { title: string; body: string }) {
+  return (
+    <article className="surface p-4">
+      <h2 className="text-sm font-semibold text-neutral-900">{title}</h2>
+      <p className="mt-2 text-sm text-neutral-500 leading-relaxed">{body}</p>
+    </article>
   )
 }

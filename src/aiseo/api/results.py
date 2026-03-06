@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query as QueryParam
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from aiseo.api.schemas import ScanResultResponse
+from aiseo.api.schemas import (
+    AggregatedBrandRank,
+    BrandRankingEntry,
+    QueryRankingsResponse,
+    ScanResultResponse,
+)
 from aiseo.models.base import get_session
 from aiseo.models.query import Query
 from aiseo.models.result import ScanResult
@@ -58,8 +65,107 @@ def get_scan_results(
             competitors_mentioned=r.competitors_mentioned,
             citations=r.citations,
             brand_cited=r.brand_cited,
+            brands_ranked=[BrandRankingEntry(**b) for b in r.brands_ranked],
             response_tokens=r.response_tokens,
             latency_ms=r.latency_ms,
         )
         for r in results
     ]
+
+
+@router.get("/scans/{scan_id}/rankings", response_model=list[QueryRankingsResponse])
+def get_scan_rankings(
+    scan_id: int,
+    session: Session = Depends(get_session),
+):
+    """Get per-query aggregated brand rankings for a scan."""
+    scan = session.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    results = session.exec(
+        select(ScanResult).where(ScanResult.scan_id == scan_id)
+    ).all()
+    if not results:
+        return []
+
+    query_ids = sorted({r.query_id for r in results})
+    queries = session.exec(
+        select(Query).where(Query.id.in_(query_ids))
+    ).all()
+    query_map = {q.id: q for q in queries}
+
+    results_by_query: dict[int, list[ScanResult]] = defaultdict(list)
+    for result in results:
+        results_by_query[result.query_id].append(result)
+
+    responses: list[QueryRankingsResponse] = []
+    for query_id in query_ids:
+        q = query_map.get(query_id)
+        if q is None:
+            continue
+
+        per_provider: dict[str, list[BrandRankingEntry]] = {}
+        aggregates: dict[str, dict] = {}
+
+        for result in results_by_query.get(query_id, []):
+            brands = [BrandRankingEntry(**b) for b in result.brands_ranked]
+            brands.sort(key=lambda b: b.position if b.position is not None else 9999)
+            per_provider[result.provider] = brands
+
+            provider_seen: set[str] = set()
+            for brand in brands:
+                key = brand.name.lower().strip()
+                if not key:
+                    continue
+
+                agg = aggregates.setdefault(
+                    key,
+                    {
+                        "name": brand.name,
+                        "positions": [],
+                        "providers": set(),
+                        "is_your_brand": False,
+                    },
+                )
+                if not agg["name"] and brand.name:
+                    agg["name"] = brand.name
+                if brand.position is not None:
+                    agg["positions"].append(brand.position)
+                if key not in provider_seen:
+                    agg["providers"].add(result.provider)
+                    provider_seen.add(key)
+                agg["is_your_brand"] = agg["is_your_brand"] or brand.is_your_brand
+
+        aggregated_ranks: list[AggregatedBrandRank] = []
+        for agg in aggregates.values():
+            if agg["positions"]:
+                avg_position = round(sum(agg["positions"]) / len(agg["positions"]), 2)
+            else:
+                # Mentioned in prose only (no ranked position in parsed lists).
+                avg_position = 999.0
+            providers = sorted(agg["providers"])
+            aggregated_ranks.append(
+                AggregatedBrandRank(
+                    name=agg["name"],
+                    avg_position=avg_position,
+                    mention_count=len(providers),
+                    providers=providers,
+                    is_your_brand=agg["is_your_brand"],
+                )
+            )
+
+        aggregated_ranks.sort(key=lambda r: (r.avg_position, -r.mention_count, r.name.lower()))
+
+        responses.append(
+            QueryRankingsResponse(
+                query_id=q.id,
+                query_text=q.text,
+                intent_category=q.intent_category,
+                search_volume=q.search_volume,
+                rankings=aggregated_ranks[:10],
+                per_provider=per_provider,
+            )
+        )
+
+    return responses

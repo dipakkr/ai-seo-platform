@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 import structlog
 
-from aiseo.config import get_settings
+from aiseo.config import get_effective_api_key
 from aiseo.utils.scraper import build_extraction_text, extract_metadata, fetch_page
 from aiseo.utils.text import extract_domain, normalize_url
 
@@ -86,14 +86,16 @@ async def _call_llm_for_extraction(prompt: str) -> str:
 
     Preference order: OpenAI > Anthropic > Gemini.
     """
-    settings = get_settings()
+    openai_key = get_effective_api_key("openai_api_key")
+    anthropic_key = get_effective_api_key("anthropic_api_key")
+    google_key = get_effective_api_key("google_api_key")
 
-    if settings.openai_api_key:
-        return await _extract_with_openai(prompt, settings.openai_api_key)
-    if settings.anthropic_api_key:
-        return await _extract_with_anthropic(prompt, settings.anthropic_api_key)
-    if settings.google_api_key:
-        return await _extract_with_gemini(prompt, settings.google_api_key)
+    if openai_key:
+        return await _extract_with_openai(prompt, openai_key)
+    if anthropic_key:
+        return await _extract_with_anthropic(prompt, anthropic_key)
+    if google_key:
+        return await _extract_with_gemini(prompt, google_key)
 
     raise RuntimeError(
         "No LLM API key configured. Set at least one of: "

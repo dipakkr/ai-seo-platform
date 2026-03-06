@@ -1,7 +1,7 @@
 """Gemini provider using Google GenAI with search grounding."""
 
-import time
 import logging
+import time
 
 from google import genai
 from google.genai import types as genai_types
@@ -13,7 +13,7 @@ from tenacity import (
     retry_if_exception,
 )
 
-from aiseo.config import get_settings
+from aiseo.config import get_request_api_key_override, get_settings
 from aiseo.providers.base import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,11 @@ class GeminiProvider(LLMProvider):
     name = "gemini"
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._api_key = settings.google_api_key
+        self._default_api_key = get_settings().google_api_key
 
     def is_configured(self) -> bool:
         """Check if Google API key is set."""
-        return self._api_key is not None and len(self._api_key) > 0
+        return bool(get_request_api_key_override("google_api_key") or self._default_api_key)
 
     @retry(
         retry=retry_if_exception(_is_rate_limit_error),
@@ -47,10 +46,11 @@ class GeminiProvider(LLMProvider):
     )
     async def query(self, prompt: str) -> LLMResponse:
         """Send a query to Gemini with search grounding and return structured response."""
-        if not self.is_configured():
+        api_key = get_request_api_key_override("google_api_key") or self._default_api_key
+        if not api_key:
             raise RuntimeError("Google API key is not configured")
 
-        client = genai.Client(api_key=self._api_key)
+        client = genai.Client(api_key=api_key)
         start_ms = _now_ms()
 
         try:

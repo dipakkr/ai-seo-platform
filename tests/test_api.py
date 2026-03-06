@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -208,6 +208,106 @@ class TestUpdateProject:
 
 
 # ---------------------------------------------------------------------------
+# Query routes
+# ---------------------------------------------------------------------------
+
+
+class TestQueryManagement:
+    def test_add_update_delete_query(self, client, engine):
+        with Session(engine) as s:
+            project = Project(url="https://acme.com", brand_name="Acme")
+            s.add(project)
+            s.commit()
+            s.refresh(project)
+            project_id = project.id
+
+        add_resp = client.post(
+            f"/api/v1/projects/{project_id}/queries",
+            json={"text": "best task software", "intent_category": "discovery"},
+        )
+        assert add_resp.status_code == 201
+        query = add_resp.json()
+        assert query["text"] == "best task software"
+
+        patch_resp = client.patch(
+            f"/api/v1/queries/{query['id']}",
+            json={"text": "best task management software", "is_active": False},
+        )
+        assert patch_resp.status_code == 200
+        updated = patch_resp.json()
+        assert updated["text"] == "best task management software"
+        assert updated["is_active"] is False
+
+        delete_resp = client.delete(f"/api/v1/queries/{query['id']}")
+        assert delete_resp.status_code == 204
+
+    def test_add_query_project_not_found(self, client):
+        resp = client.post(
+            "/api/v1/projects/999/queries",
+            json={"text": "best task software", "intent_category": "discovery"},
+        )
+        assert resp.status_code == 404
+
+    def test_update_query_not_found(self, client):
+        resp = client.patch(
+            "/api/v1/queries/999",
+            json={"is_active": False},
+        )
+        assert resp.status_code == 404
+
+    def test_delete_query_not_found(self, client):
+        resp = client.delete("/api/v1/queries/999")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Integrations routes
+# ---------------------------------------------------------------------------
+
+
+class TestIntegrationManagement:
+    def test_test_integration_unknown_provider(self, client):
+        resp = client.post("/api/v1/integrations/test", json={"provider": "unknown"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["configured"] is False
+
+    @patch("aiseo.api.integrations._provider_from_name")
+    def test_test_integration_success(self, mock_provider_factory, client):
+        mock_provider = MagicMock()
+        mock_provider.name = "chatgpt"
+        mock_provider.is_configured.return_value = True
+        mock_provider.query = AsyncMock(return_value=type(
+            "_Resp",
+            (),
+            {"model": "gpt-4o-mini", "latency_ms": 111},
+        )())
+        mock_provider_factory.return_value = mock_provider
+
+        resp = client.post("/api/v1/integrations/test", json={"provider": "chatgpt"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["provider"] == "chatgpt"
+        assert data["configured"] is True
+        assert data["success"] is True
+        assert data["model"] == "gpt-4o-mini"
+
+    @patch("aiseo.api.integrations._provider_from_name")
+    def test_test_integration_not_configured(self, mock_provider_factory, client):
+        mock_provider = MagicMock()
+        mock_provider.name = "chatgpt"
+        mock_provider.is_configured.return_value = False
+        mock_provider_factory.return_value = mock_provider
+
+        resp = client.post("/api/v1/integrations/test", json={"provider": "chatgpt"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data["configured"] is False
+
+
+# ---------------------------------------------------------------------------
 # Scan routes
 # ---------------------------------------------------------------------------
 
@@ -350,12 +450,24 @@ class TestGetResults:
                 brand_position=1,
                 competitors_mentioned_json=json.dumps(["Trello"]),
                 citations_json=json.dumps(["https://acme.com"]),
+                brands_ranked_json=json.dumps(
+                    [
+                        {"name": "Acme", "position": 1, "is_your_brand": True},
+                        {"name": "Trello", "position": 2, "is_your_brand": False},
+                    ]
+                ),
             )
             r2 = ScanResult(
                 scan_id=scan.id,
                 query_id=q1.id,
                 provider="perplexity",
                 brand_mentioned=False,
+                brands_ranked_json=json.dumps(
+                    [
+                        {"name": "Trello", "position": 1, "is_your_brand": False},
+                        {"name": "Asana", "position": 2, "is_your_brand": False},
+                    ]
+                ),
             )
             r3 = ScanResult(
                 scan_id=scan.id,
@@ -363,6 +475,12 @@ class TestGetResults:
                 provider="chatgpt",
                 brand_mentioned=True,
                 brand_position=2,
+                brands_ranked_json=json.dumps(
+                    [
+                        {"name": "Trello", "position": 1, "is_your_brand": False},
+                        {"name": "Acme", "position": 2, "is_your_brand": True},
+                    ]
+                ),
             )
             s.add_all([r1, r2, r3])
             s.commit()
@@ -405,6 +523,22 @@ class TestGetResults:
         r = chatgpt_mentioned[0]
         assert isinstance(r["competitors_mentioned"], list)
         assert isinstance(r["citations"], list)
+        assert isinstance(r["brands_ranked"], list)
+
+    def test_get_rankings(self, client, seeded_results):
+        scan_id = seeded_results
+        resp = client.get(f"/api/v1/scans/{scan_id}/rankings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        first_query = data[0]
+        assert "rankings" in first_query
+        assert "per_provider" in first_query
+        assert len(first_query["rankings"]) >= 1
+
+    def test_get_rankings_scan_not_found(self, client):
+        resp = client.get("/api/v1/scans/999/rankings")
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

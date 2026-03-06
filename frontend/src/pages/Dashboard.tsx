@@ -1,16 +1,22 @@
-import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import {
-  getProject, getScan, getScanResults, getScanOpportunities,
-  triggerScan, getProjectHistory, scanSingleQuery,
+  addQuery,
+  deleteQuery,
+  getProject,
+  getProjectHistory,
+  getScan,
+  getScanRankings,
+  getScanResults,
+  scanSingleQuery,
+  triggerScan,
+  updateQuery,
 } from '../api'
 import type { SingleQueryResult } from '../api'
-import type { ProjectWithQueries, Scan, ScanResult, Opportunity } from '../types'
+import type { ProjectWithQueries, QueryRankings, Scan, ScanResult } from '../types'
 import LoadingSpinner from '../components/LoadingSpinner'
-import VisibilityGauge from '../components/VisibilityGauge'
-import LLMBreakdown, { CategoryBreakdown } from '../components/LLMBreakdown'
-import OpportunityCard from '../components/OpportunityCard'
-import StatusBadge, { scanStatusVariant, intentBadgeVariant } from '../components/StatusBadge'
+import StatusBadge, { intentBadgeVariant, scanStatusVariant } from '../components/StatusBadge'
+import { getIntegrationKeys } from '../integrations'
 
 const providerLabels: Record<string, string> = {
   chatgpt: 'ChatGPT',
@@ -19,48 +25,60 @@ const providerLabels: Record<string, string> = {
   claude: 'Claude',
 }
 
+const INTENTS = ['discovery', 'comparison', 'problem', 'recommendation'] as const
+
+type ViewMode = 'rankings' | 'raw'
+
 export default function Dashboard() {
   const { id } = useParams<{ id: string }>()
+  const projectId = Number(id)
+
   const [project, setProject] = useState<ProjectWithQueries | null>(null)
   const [scans, setScans] = useState<Scan[]>([])
   const [latestScan, setLatestScan] = useState<Scan | null>(null)
   const [results, setResults] = useState<ScanResult[]>([])
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [rankings, setRankings] = useState<QueryRankings[]>([])
+
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showAllQueries, setShowAllQueries] = useState(false)
 
-  // Per-query scan state
+  const [viewMode, setViewMode] = useState<ViewMode>('rankings')
+  const [expandedRankingQueryId, setExpandedRankingQueryId] = useState<number | null>(null)
+
+  const [newQueryText, setNewQueryText] = useState('')
+  const [newQueryIntent, setNewQueryIntent] = useState<(typeof INTENTS)[number]>('discovery')
+  const [queryMutationLoading, setQueryMutationLoading] = useState(false)
+
   const [scanningQueryId, setScanningQueryId] = useState<number | null>(null)
   const [queryResults, setQueryResults] = useState<Record<number, SingleQueryResult[]>>({})
   const [expandedQueryId, setExpandedQueryId] = useState<number | null>(null)
 
-  const projectId = Number(id)
-
   useEffect(() => {
-    loadProject()
+    void loadProject()
   }, [id])
 
   async function loadProject() {
     setLoading(true)
+    setError(null)
     try {
-      const [proj, history] = await Promise.all([
-        getProject(projectId),
-        getProjectHistory(projectId),
-      ])
+      const [proj, history] = await Promise.all([getProject(projectId), getProjectHistory(projectId)])
       setProject(proj)
       setScans(history)
 
       const completed = history.find((s) => s.status === 'completed')
       if (completed) {
         setLatestScan(completed)
-        const [res, opps] = await Promise.all([
+        const [scanResults, scanRankings] = await Promise.all([
           getScanResults(completed.id),
-          getScanOpportunities(completed.id),
+          getScanRankings(completed.id),
         ])
-        setResults(res)
-        setOpportunities(opps)
+        setResults(scanResults)
+        setRankings(scanRankings)
+      } else {
+        setLatestScan(null)
+        setResults([])
+        setRankings([])
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load project')
@@ -69,7 +87,7 @@ export default function Dashboard() {
     }
   }
 
-  async function handleScan() {
+  async function runFullScan() {
     setScanning(true)
     setError(null)
     try {
@@ -77,32 +95,32 @@ export default function Dashboard() {
       const scanId = resp.scan_id
 
       if (resp.status === 'completed') {
-        const [scan, res, opps] = await Promise.all([
+        const [scan, scanResults, scanRankings] = await Promise.all([
           getScan(scanId),
           getScanResults(scanId),
-          getScanOpportunities(scanId),
+          getScanRankings(scanId),
         ])
         setLatestScan(scan)
-        setResults(res)
-        setOpportunities(opps)
+        setResults(scanResults)
+        setRankings(scanRankings)
         setScans((prev) => [scan, ...prev])
         return
       }
 
       let scan = await getScan(scanId)
       while (scan.status === 'pending' || scan.status === 'running') {
-        await new Promise((r) => setTimeout(r, 2000))
+        await new Promise((resolve) => setTimeout(resolve, 2000))
         scan = await getScan(scanId)
       }
 
       setLatestScan(scan)
       if (scan.status === 'completed') {
-        const [res, opps] = await Promise.all([
+        const [scanResults, scanRankings] = await Promise.all([
           getScanResults(scanId),
-          getScanOpportunities(scanId),
+          getScanRankings(scanId),
         ])
-        setResults(res)
-        setOpportunities(opps)
+        setResults(scanResults)
+        setRankings(scanRankings)
         setScans((prev) => [scan, ...prev])
       } else if (scan.status === 'failed') {
         setError(scan.error_message || 'Scan failed')
@@ -114,151 +132,458 @@ export default function Dashboard() {
     }
   }
 
+  async function handleAddQuery() {
+    const text = newQueryText.trim()
+    if (!text) return
+
+    setQueryMutationLoading(true)
+    setError(null)
+    try {
+      await addQuery(projectId, text, newQueryIntent)
+      setNewQueryText('')
+      await loadProject()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add query')
+    } finally {
+      setQueryMutationLoading(false)
+    }
+  }
+
+  async function handleDeleteQuery(queryId: number) {
+    if (!window.confirm('Delete this query?')) return
+    setQueryMutationLoading(true)
+    setError(null)
+    try {
+      await deleteQuery(queryId)
+      await loadProject()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete query')
+    } finally {
+      setQueryMutationLoading(false)
+    }
+  }
+
+  async function handleToggleQuery(queryId: number, isActive: boolean) {
+    setQueryMutationLoading(true)
+    setError(null)
+    try {
+      await updateQuery(queryId, { is_active: isActive })
+      await loadProject()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update query')
+    } finally {
+      setQueryMutationLoading(false)
+    }
+  }
+
   async function handleQueryScan(queryId: number) {
     setScanningQueryId(queryId)
     setExpandedQueryId(queryId)
+    setError(null)
     try {
       const resp = await scanSingleQuery(queryId)
       setQueryResults((prev) => ({ ...prev, [queryId]: resp.results }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Query scan failed`)
+      setError(err instanceof Error ? err.message : 'Single-query scan failed')
     } finally {
       setScanningQueryId(null)
     }
   }
 
-  if (loading) return <LoadingSpinner text="Loading project..." />
-  if (!project) return <p className="text-gray-500">Project not found.</p>
+  const stats = useMemo(() => {
+    const activeQueries = project?.queries.filter((q) => q.is_active).length ?? 0
+    const providers = new Set(results.map((r) => r.provider))
+    const configuredKeys = getIntegrationKeys()
+    const configuredProviders = [
+      configuredKeys.openai_api_key,
+      configuredKeys.anthropic_api_key,
+      configuredKeys.google_api_key,
+      configuredKeys.perplexity_api_key,
+    ].filter((key) => key.trim().length > 0).length
+    const mentions = results.filter((r) => r.brand_mentioned).length
+    const mentionRate = results.length ? Math.round((mentions / results.length) * 100) : 0
 
-  const hasResults = results.length > 0
-  const activeQueries = project.queries.filter((q) => q.is_active)
-  const queriesByCategory = activeQueries.reduce((acc, q) => {
-    acc[q.intent_category] = (acc[q.intent_category] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-  const displayQueries = showAllQueries ? activeQueries : activeQueries.slice(0, 10)
+    return {
+      activeQueries,
+      providers: providers.size > 0 ? providers.size : configuredProviders,
+      mentionRate,
+      latestScore: latestScan?.visibility_score != null ? Math.round(latestScan.visibility_score) : null,
+    }
+  }, [project, results, latestScan])
+
+  const hasResults = rankings.length > 0
+
+  const resultsLookup = useMemo(() => {
+    const map = new Map<string, ScanResult>()
+    for (const r of results) {
+      map.set(`${r.query_id}:${r.provider}`, r)
+    }
+    return map
+  }, [results])
+
+  const rawRows = useMemo(() => {
+    const map = new Map<number, { text: string; providers: Map<string, ScanResult> }>()
+    const queryTextById = new Map<number, string>((project?.queries ?? []).map((q) => [q.id, q.text]))
+
+    for (const r of results) {
+      if (!map.has(r.query_id)) {
+        map.set(r.query_id, {
+          text: queryTextById.get(r.query_id) ?? `Query #${r.query_id}`,
+          providers: new Map(),
+        })
+      }
+      map.get(r.query_id)!.providers.set(r.provider, r)
+    }
+
+    return [...map.entries()]
+  }, [results, project?.queries])
+
+  if (loading) return <LoadingSpinner text="Loading workspace..." />
+  if (!project) return <p className="text-sm text-neutral-500">Project not found.</p>
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{project.brand_name}</h1>
-          <p className="text-sm text-gray-500 mt-1">{project.url}</p>
-          {project.category && (
-            <p className="text-sm text-gray-400 mt-0.5">{project.category}</p>
-          )}
-        </div>
-        <button
-          onClick={handleScan}
-          disabled={scanning}
-          className="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-        >
-          {scanning ? 'Scanning...' : hasResults ? 'Re-scan All' : 'Run Full Scan'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-500 hover:text-red-700">dismiss</button>
-        </div>
-      )}
-
-      {scanning && (
-        <LoadingSpinner text="Scanning LLMs... this may take a few minutes." />
-      )}
-
-      {/* Pre-scan: explain what will happen */}
-      {!hasResults && !scanning && (
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-5">
-          <h2 className="text-sm font-semibold text-indigo-900 mb-2">Ready to scan</h2>
-          <p className="text-sm text-indigo-700 leading-relaxed">
-            Click <strong>Run Full Scan</strong> to check all {activeQueries.length} queries, or click the
-            scan button on any individual query below to test it first.
-          </p>
-        </div>
-      )}
-
-      {/* Score + Breakdowns (post-scan) */}
-      {hasResults && latestScan && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col items-center justify-center">
-            <h2 className="text-sm font-semibold text-gray-500 mb-4">AI Visibility Score</h2>
-            <VisibilityGauge score={latestScan.visibility_score ?? 0} />
+    <div className="max-w-7xl mx-auto space-y-5">
+      <section className="surface p-5">
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-neutral-400 font-semibold">Project</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-neutral-900">{project.brand_name}</h1>
+            <p className="text-sm text-neutral-500 mt-1 break-all">{project.url}</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <LLMBreakdown results={results} />
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <CategoryBreakdown
-              results={results}
-              queries={project.queries.map((q) => ({ id: q.id, intent_category: q.intent_category }))}
-            />
-          </div>
+          <button
+            onClick={runFullScan}
+            disabled={scanning}
+            className="btn-primary h-10 px-4 rounded-md text-sm font-medium disabled:opacity-50"
+            type="button"
+          >
+            {scanning ? 'Scanning...' : hasResults ? 'Re-run Scan' : 'Run Scan'}
+          </button>
         </div>
-      )}
 
-      {/* Top Opportunities (post-scan) */}
-      {opportunities.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-900">Top Opportunities</h2>
-            {latestScan && (
-              <Link
-                to={`/scans/${latestScan.id}/opportunities`}
-                className="text-sm text-indigo-600 hover:text-indigo-800"
-              >
-                View all ({opportunities.length})
-              </Link>
-            )}
+        <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="Active Queries" value={String(stats.activeQueries)} />
+          <StatCard label="Providers Covered" value={String(stats.providers)} />
+          <StatCard label="Mention Rate" value={`${stats.mentionRate}%`} />
+          <StatCard label="Visibility Score" value={stats.latestScore == null ? '--' : String(stats.latestScore)} />
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {opportunities.slice(0, 4).map((o) => (
-              <OpportunityCard key={o.id} opportunity={o} />
+        )}
+      </section>
+
+      <section className="surface p-5">
+        <h2 className="text-base font-semibold text-neutral-900">Query Management</h2>
+        <p className="text-sm text-neutral-500 mt-1">Add, scan, activate, and maintain tracked prompts.</p>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-[1fr_180px_120px] gap-2">
+          <input
+            value={newQueryText}
+            onChange={(e) => setNewQueryText(e.target.value)}
+            placeholder="Add a new query"
+            className="h-10 rounded-md border border-neutral-300 px-3 text-sm outline-none focus:border-neutral-900"
+          />
+          <select
+            value={newQueryIntent}
+            onChange={(e) => setNewQueryIntent(e.target.value as (typeof INTENTS)[number])}
+            className="h-10 rounded-md border border-neutral-300 px-3 text-sm outline-none focus:border-neutral-900"
+          >
+            {INTENTS.map((intent) => (
+              <option key={intent} value={intent}>{intent}</option>
             ))}
-          </div>
+          </select>
+          <button
+            onClick={handleAddQuery}
+            disabled={queryMutationLoading || !newQueryText.trim()}
+            className="btn-secondary h-10 px-3 rounded-md text-sm font-medium disabled:opacity-40"
+            type="button"
+          >
+            Add Query
+          </button>
         </div>
+
+        <div className="mt-4 overflow-x-auto border border-neutral-200 rounded-md">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+              <tr>
+                <th className="px-3 py-2 text-left">Query</th>
+                <th className="px-3 py-2 text-left">Intent</th>
+                <th className="px-3 py-2 text-left">Volume</th>
+                <th className="px-3 py-2 text-left">Active</th>
+                <th className="px-3 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-200">
+              {project.queries.map((query) => {
+                const qResults = queryResults[query.id] ?? []
+                const isExpanded = expandedQueryId === query.id
+
+                return (
+                  <Fragment key={query.id}>
+                    <tr className="hover:bg-neutral-50">
+                      <td className="px-3 py-2.5 text-neutral-800">{query.text}</td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge label={query.intent_category} variant={intentBadgeVariant(query.intent_category)} />
+                      </td>
+                      <td className="px-3 py-2.5 text-neutral-500">{query.search_volume ?? '--'}</td>
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={query.is_active}
+                          onChange={(e) => handleToggleQuery(query.id, e.target.checked)}
+                          disabled={queryMutationLoading}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 text-right space-x-1">
+                        <button
+                          onClick={() => handleQueryScan(query.id)}
+                          disabled={scanningQueryId === query.id}
+                          className="btn-secondary h-8 px-2 rounded text-xs disabled:opacity-40"
+                          type="button"
+                        >
+                          {scanningQueryId === query.id ? 'Scanning...' : 'Scan'}
+                        </button>
+                        <button
+                          onClick={() => setExpandedQueryId(isExpanded ? null : query.id)}
+                          disabled={!qResults.length}
+                          className="btn-secondary h-8 px-2 rounded text-xs disabled:opacity-40"
+                          type="button"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleDeleteQuery(query.id)}
+                          disabled={queryMutationLoading}
+                          className="h-8 px-2 rounded text-xs border border-red-200 text-red-700 bg-white hover:bg-red-50 disabled:opacity-40"
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+
+                    {isExpanded && qResults.length > 0 && (
+                      <tr>
+                        <td colSpan={5} className="bg-neutral-50 px-3 py-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {qResults.map((result) => (
+                              <div key={result.provider} className="surface-muted p-3">
+                                <p className="text-xs font-semibold text-neutral-700">
+                                  {providerLabels[result.provider] ?? result.provider}
+                                </p>
+                                <p className="text-xs text-neutral-600 mt-1 leading-relaxed">
+                                  {result.brands_ranked.slice(0, 5).map((brand) => (
+                                    <span
+                                      key={brand.name}
+                                      className={brand.is_your_brand ? 'mr-1 rounded bg-neutral-900 px-1 text-white' : 'mr-1'}
+                                    >
+                                      {brand.position ? `${brand.position}. ` : ''}{brand.name}
+                                    </span>
+                                  ))}
+                                </p>
+                                {result.raw_response && (
+                                  <details className="mt-2">
+                                    <summary className="text-xs text-neutral-500 cursor-pointer">Full response</summary>
+                                    <p className="text-xs text-neutral-600 mt-1 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                      {result.raw_response}
+                                    </p>
+                                  </details>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {hasResults && latestScan && (
+        <section className="surface p-5">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-neutral-900">Visibility Rankings</h2>
+              <p className="text-sm text-neutral-500">Scan #{latestScan.id} aggregated across providers</p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setViewMode('rankings')}
+                className={`h-8 px-3 rounded-md text-xs font-medium border ${viewMode === 'rankings' ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-700 border-neutral-200'}`}
+                type="button"
+              >
+                Rankings
+              </button>
+              <button
+                onClick={() => setViewMode('raw')}
+                className={`h-8 px-3 rounded-md text-xs font-medium border ${viewMode === 'raw' ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-700 border-neutral-200'}`}
+                type="button"
+              >
+                Raw
+              </button>
+              <Link to={`/scans/${latestScan.id}`} className="text-xs text-neutral-600 hover:text-neutral-900">
+                Open Detail View
+              </Link>
+            </div>
+          </div>
+
+          {viewMode === 'rankings' ? (
+            <div className="mt-4 overflow-x-auto border border-neutral-200 rounded-md">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Query</th>
+                    <th className="px-3 py-2 text-left">#1</th>
+                    <th className="px-3 py-2 text-left">#2</th>
+                    <th className="px-3 py-2 text-left">#3</th>
+                    <th className="px-3 py-2 text-left">#4</th>
+                    <th className="px-3 py-2 text-left">#5</th>
+                    <th className="px-3 py-2 text-left">You</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-200">
+                  {rankings.map((row) => {
+                    const topFive = row.rankings.slice(0, 5)
+                    const yourPositions = Object.values(row.per_provider)
+                      .flat()
+                      .filter((b) => b.is_your_brand && b.position != null)
+                      .map((b) => b.position as number)
+                    const yourPosition = yourPositions.length ? Math.min(...yourPositions) : null
+
+                    return (
+                      <Fragment key={row.query_id}>
+                        <tr
+                          className="hover:bg-neutral-50 cursor-pointer"
+                          onClick={() => setExpandedRankingQueryId(expandedRankingQueryId === row.query_id ? null : row.query_id)}
+                        >
+                          <td className="px-3 py-2.5 text-neutral-800 max-w-xs truncate">{row.query_text}</td>
+                          {[0, 1, 2, 3, 4].map((idx) => {
+                            const brand = topFive[idx]
+                            return (
+                              <td key={idx} className="px-3 py-2.5 text-neutral-700">
+                                {brand ? (
+                                  <span className={brand.is_your_brand ? 'rounded bg-neutral-900 px-1.5 py-0.5 text-white text-xs font-medium' : ''}>
+                                    {brand.name}
+                                  </span>
+                                ) : (
+                                  <span className="text-neutral-300">--</span>
+                                )}
+                              </td>
+                            )
+                          })}
+                          <td className="px-3 py-2.5 font-semibold text-neutral-900">
+                            {yourPosition ? `#${yourPosition}` : 'Missing'}
+                          </td>
+                        </tr>
+
+                        {expandedRankingQueryId === row.query_id && (
+                          <tr>
+                            <td colSpan={7} className="bg-neutral-50 px-3 py-3">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {Object.entries(row.per_provider).map(([provider, brands]) => {
+                                  const detail = resultsLookup.get(`${row.query_id}:${provider}`)
+                                  return (
+                                    <div key={provider} className="surface-muted p-3">
+                                      <p className="text-xs font-semibold text-neutral-700">
+                                        {providerLabels[provider] ?? provider}
+                                      </p>
+                                      <p className="text-xs text-neutral-600 mt-1">
+                                        {brands.map((brand) => (
+                                          <span
+                                            key={brand.name}
+                                            className={brand.is_your_brand ? 'mr-1 rounded bg-neutral-900 px-1 text-white' : 'mr-1'}
+                                          >
+                                            {brand.position ? `${brand.position}. ` : ''}{brand.name}
+                                          </span>
+                                        ))}
+                                      </p>
+                                      {detail?.raw_response && (
+                                        <details className="mt-2">
+                                          <summary className="text-xs text-neutral-500 cursor-pointer">Full response</summary>
+                                          <p className="text-xs text-neutral-600 mt-1 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                                            {detail.raw_response}
+                                          </p>
+                                        </details>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-4 overflow-x-auto border border-neutral-200 rounded-md">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Query</th>
+                    <th className="px-3 py-2 text-left">Provider</th>
+                    <th className="px-3 py-2 text-left">Mention</th>
+                    <th className="px-3 py-2 text-left">Position</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-200">
+                  {rawRows.flatMap(([queryId, row]) =>
+                    [...row.providers.values()].map((result) => (
+                      <tr key={`${queryId}:${result.provider}`}>
+                        <td className="px-3 py-2.5 text-neutral-800">{row.text}</td>
+                        <td className="px-3 py-2.5 text-neutral-600">{providerLabels[result.provider] ?? result.provider}</td>
+                        <td className="px-3 py-2.5 text-neutral-700">{result.brand_mentioned ? 'Yes' : 'No'}</td>
+                        <td className="px-3 py-2.5 text-neutral-600">{result.brand_position ? `#${result.brand_position}` : '--'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Scan History (post-scan) */}
       {scans.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Scan History</h2>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <section className="surface p-5">
+          <h2 className="text-base font-semibold text-neutral-900">Scan History</h2>
+          <div className="mt-3 overflow-x-auto border border-neutral-200 rounded-md">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
+              <thead className="bg-neutral-50 text-neutral-500 text-xs uppercase">
                 <tr>
-                  <th className="px-4 py-2 text-left">Date</th>
-                  <th className="px-4 py-2 text-left">Status</th>
-                  <th className="px-4 py-2 text-left">Score</th>
-                  <th className="px-4 py-2 text-left">Queries</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="px-3 py-2 text-left">Date</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-left">Score</th>
+                  <th className="px-3 py-2 text-right">View</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {scans.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2.5 text-gray-700">
-                      {new Date(s.started_at).toLocaleDateString()}
+              <tbody className="divide-y divide-neutral-200">
+                {scans.map((scan) => (
+                  <tr key={scan.id}>
+                    <td className="px-3 py-2.5 text-neutral-700">{new Date(scan.started_at).toLocaleDateString()}</td>
+                    <td className="px-3 py-2.5">
+                      <StatusBadge label={scan.status} variant={scanStatusVariant(scan.status)} />
                     </td>
-                    <td className="px-4 py-2.5">
-                      <StatusBadge label={s.status} variant={scanStatusVariant(s.status)} />
+                    <td className="px-3 py-2.5 text-neutral-700">
+                      {scan.visibility_score != null ? Math.round(scan.visibility_score) : '--'}
                     </td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">
-                      {s.visibility_score != null ? Math.round(s.visibility_score) : '--'}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-500">
-                      {s.completed_queries}/{s.total_queries}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      {s.status === 'completed' && (
-                        <Link
-                          to={`/scans/${s.id}`}
-                          className="text-indigo-600 hover:text-indigo-800 text-xs font-medium"
-                        >
-                          View Results
+                    <td className="px-3 py-2.5 text-right">
+                      {scan.status === 'completed' ? (
+                        <Link to={`/scans/${scan.id}`} className="text-xs text-neutral-600 hover:text-neutral-900">
+                          Open
                         </Link>
+                      ) : (
+                        <span className="text-xs text-neutral-400">--</span>
                       )}
                     </td>
                   </tr>
@@ -266,247 +591,17 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       )}
-
-      {/* Generated Queries with per-row scan */}
-      {activeQueries.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Generated Queries
-              <span className="ml-2 text-sm font-normal text-gray-400">({activeQueries.length})</span>
-            </h2>
-            <div className="flex gap-2 text-xs">
-              {Object.entries(queriesByCategory).map(([cat, count]) => (
-                <span key={cat} className="text-gray-500">
-                  {cat}: {count}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
-                <tr>
-                  <th className="px-4 py-2 text-left">Query</th>
-                  <th className="px-4 py-2 text-left">Intent</th>
-                  <th className="px-4 py-2 text-left">Volume</th>
-                  <th className="px-4 py-2 text-center w-28">Scan</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {displayQueries.map((q) => {
-                  const qResults = queryResults[q.id]
-                  const isScanning = scanningQueryId === q.id
-                  const isExpanded = expandedQueryId === q.id
-                  const hasQueryResults = qResults && qResults.length > 0
-
-                  return (
-                    <QueryRow
-                      key={q.id}
-                      query={q}
-                      isScanning={isScanning}
-                      isExpanded={isExpanded}
-                      hasQueryResults={hasQueryResults}
-                      qResults={qResults}
-                      onScan={() => handleQueryScan(q.id)}
-                      onToggle={() => setExpandedQueryId(isExpanded ? null : q.id)}
-                    />
-                  )
-                })}
-              </tbody>
-            </table>
-            {activeQueries.length > 10 && (
-              <div className="border-t border-gray-100 px-4 py-2 text-center">
-                <button
-                  onClick={() => setShowAllQueries(!showAllQueries)}
-                  className="text-sm text-indigo-600 hover:text-indigo-800"
-                >
-                  {showAllQueries ? 'Show less' : `Show all ${activeQueries.length} queries`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Brand Profile */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">Brand Profile</h2>
-        <div className="bg-white rounded-xl border border-gray-200 p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-gray-400">Description</span>
-            <p className="text-gray-700 mt-0.5">{project.description || 'N/A'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">Target Audience</span>
-            <p className="text-gray-700 mt-0.5">{project.target_audience || 'N/A'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">Competitors</span>
-            <p className="text-gray-700 mt-0.5">{project.competitors.length ? project.competitors.join(', ') : 'N/A'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">Features</span>
-            <p className="text-gray-700 mt-0.5">{project.features.length ? project.features.join(', ') : 'N/A'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">Aliases</span>
-            <p className="text-gray-700 mt-0.5">{project.brand_aliases.length ? project.brand_aliases.join(', ') : 'N/A'}</p>
-          </div>
-          <div>
-            <span className="text-gray-400">Active Queries</span>
-            <p className="text-gray-700 mt-0.5">{activeQueries.length}</p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
 
-
-// --- Per-query row component ---
-
-interface QueryRowProps {
-  query: { id: number; text: string; intent_category: string; search_volume: number | null }
-  isScanning: boolean
-  isExpanded: boolean
-  hasQueryResults: boolean
-  qResults: SingleQueryResult[] | undefined
-  onScan: () => void
-  onToggle: () => void
-}
-
-function QueryRow({ query, isScanning, isExpanded, hasQueryResults, qResults, onScan, onToggle }: QueryRowProps) {
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <>
-      <tr className="hover:bg-gray-50">
-        <td className="px-4 py-2.5 text-gray-700">
-          <span
-            className={hasQueryResults ? 'cursor-pointer hover:text-indigo-600' : ''}
-            onClick={hasQueryResults ? onToggle : undefined}
-          >
-            {query.text}
-            {hasQueryResults && (
-              <span className="ml-1.5 text-gray-400 text-xs">{isExpanded ? '▾' : '▸'}</span>
-            )}
-          </span>
-        </td>
-        <td className="px-4 py-2.5">
-          <StatusBadge
-            label={query.intent_category}
-            variant={intentBadgeVariant(query.intent_category)}
-          />
-        </td>
-        <td className="px-4 py-2.5 text-gray-500">
-          {query.search_volume != null ? query.search_volume.toLocaleString() : '--'}
-        </td>
-        <td className="px-4 py-2.5 text-center">
-          {isScanning ? (
-            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-              <span className="w-3 h-3 border border-gray-300 border-t-indigo-600 rounded-full animate-spin" />
-              Scanning...
-            </span>
-          ) : hasQueryResults ? (
-            <div className="flex items-center justify-center gap-1">
-              {qResults!.map((r) => (
-                <span
-                  key={r.provider}
-                  title={`${providerLabels[r.provider] ?? r.provider}: ${r.brand_mentioned ? 'Mentioned' : 'Not mentioned'}`}
-                  className={`w-2.5 h-2.5 rounded-full ${r.brand_mentioned ? 'bg-green-500' : 'bg-red-400'}`}
-                />
-              ))}
-              <button
-                onClick={onScan}
-                className="ml-1.5 text-xs text-gray-400 hover:text-indigo-600"
-                title="Re-scan this query"
-              >
-                ↻
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={onScan}
-              className="px-3 py-1 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-50 transition-colors"
-            >
-              Scan
-            </button>
-          )}
-        </td>
-      </tr>
-      {isExpanded && hasQueryResults && (
-        <tr>
-          <td colSpan={4} className="bg-gray-50 px-4 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {qResults!.map((r) => (
-                <div key={r.provider} className="border border-gray-200 rounded-lg p-3 bg-white">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-semibold text-gray-700">
-                      {providerLabels[r.provider] ?? r.provider}
-                    </h4>
-                    <span className={`inline-flex items-center gap-1 text-xs font-medium ${r.brand_mentioned ? 'text-green-600' : 'text-red-500'}`}>
-                      <span className={`w-2 h-2 rounded-full ${r.brand_mentioned ? 'bg-green-500' : 'bg-red-400'}`} />
-                      {r.brand_mentioned
-                        ? r.brand_position
-                          ? `Mentioned (#${r.brand_position})`
-                          : 'Mentioned'
-                        : 'Not mentioned'}
-                    </span>
-                  </div>
-
-                  {r.brand_context && (
-                    <p className="text-xs text-gray-600 mb-2 leading-relaxed bg-gray-50 rounded p-2">
-                      ...{r.brand_context}...
-                    </p>
-                  )}
-
-                  {r.brand_sentiment && (
-                    <p className="text-xs text-gray-500 mb-1">
-                      Sentiment: <span className={
-                        r.brand_sentiment === 'positive' ? 'text-green-600' :
-                        r.brand_sentiment === 'negative' ? 'text-red-600' : 'text-gray-600'
-                      }>{r.brand_sentiment}</span>
-                    </p>
-                  )}
-
-                  {r.competitors_mentioned.length > 0 && (
-                    <p className="text-xs text-gray-500 mb-1">
-                      Competitors: <span className="text-gray-700">{r.competitors_mentioned.join(', ')}</span>
-                    </p>
-                  )}
-
-                  {r.citations.length > 0 && (
-                    <p className="text-xs text-gray-500 mb-1">
-                      Citations: {r.citations.length}
-                      {r.brand_cited && <span className="ml-1 text-green-600 font-medium">(your site cited)</span>}
-                    </p>
-                  )}
-
-                  {r.latency_ms != null && (
-                    <p className="text-xs text-gray-400 mt-1">{r.latency_ms}ms</p>
-                  )}
-
-                  {r.error && (
-                    <p className="text-xs text-red-500 mt-1">Provider returned an error</p>
-                  )}
-
-                  {!r.brand_context && !r.error && r.raw_response && (
-                    <details className="mt-2">
-                      <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
-                        View full response
-                      </summary>
-                      <p className="text-xs text-gray-500 mt-1 leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap">
-                        {r.raw_response}
-                      </p>
-                    </details>
-                  )}
-                </div>
-              ))}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+    <div className="surface-muted p-3">
+      <p className="text-[11px] uppercase tracking-wide text-neutral-400 font-semibold">{label}</p>
+      <p className="mt-1 text-xl font-semibold text-neutral-900">{value}</p>
+    </div>
   )
 }

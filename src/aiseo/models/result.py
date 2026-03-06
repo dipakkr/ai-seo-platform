@@ -22,6 +22,7 @@ class ScanResult(SQLModel, table=True):
     competitors_mentioned_json: str = Field(default="[]", sa_column=Column(Text))
     citations_json: str = Field(default="[]", sa_column=Column(Text))
     brand_cited: bool = False
+    brands_ranked_json: str = Field(default="[]", sa_column=Column(Text))
     response_tokens: int | None = None
     latency_ms: int | None = None
 
@@ -40,3 +41,11 @@ class ScanResult(SQLModel, table=True):
     @citations.setter
     def citations(self, value: list[str]):
         self.citations_json = json.dumps(value)
+
+    @property
+    def brands_ranked(self) -> list[dict]:
+        return json.loads(self.brands_ranked_json)
+
+    @brands_ranked.setter
+    def brands_ranked(self, value: list[dict]):
+        self.brands_ranked_json = json.dumps(value)

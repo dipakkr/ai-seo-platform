@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from sqlmodel import Session, select
 
-from aiseo.config import get_settings
 from aiseo.models.base import get_engine
 from aiseo.models.project import Project
 from aiseo.models.query import Query
 from aiseo.models.result import ScanResult
 from aiseo.models.scan import Scan
 from aiseo.providers.base import LLMProvider
+from aiseo.services.brand_ranker import extract_brands
 from aiseo.services.citation_parser import parse_citations
 from aiseo.services.mention_detector import MentionDetector
 
@@ -28,28 +28,21 @@ def _get_configured_providers() -> list[LLMProvider]:
     Uses lazy imports so provider modules (which pull in heavy SDKs)
     are only loaded when actually needed and can be built in parallel.
     """
-    settings = get_settings()
     providers: list[LLMProvider] = []
 
-    if settings.openai_api_key:
-        from aiseo.providers.chatgpt import ChatGPTProvider
+    from aiseo.providers.chatgpt import ChatGPTProvider
+    from aiseo.providers.claude import ClaudeProvider
+    from aiseo.providers.gemini import GeminiProvider
+    from aiseo.providers.perplexity import PerplexityProvider
 
-        providers.append(ChatGPTProvider())
-
-    if settings.perplexity_api_key:
-        from aiseo.providers.perplexity import PerplexityProvider
-
-        providers.append(PerplexityProvider())
-
-    if settings.google_api_key:
-        from aiseo.providers.gemini import GeminiProvider
-
-        providers.append(GeminiProvider())
-
-    if settings.anthropic_api_key:
-        from aiseo.providers.claude import ClaudeProvider
-
-        providers.append(ClaudeProvider())
+    for provider in (
+        ChatGPTProvider(),
+        PerplexityProvider(),
+        GeminiProvider(),
+        ClaudeProvider(),
+    ):
+        if provider.is_configured():
+            providers.append(provider)
 
     return providers
 
@@ -143,22 +136,29 @@ async def run_scan(project_id: int, scan_id: int) -> None:
             mention = detector.detect(response.text)
             competitors_found = detector.detect_competitors(response.text, competitors)
             citation = parse_citations(response.text, response.citations, brand_domain)
+            brands = extract_brands(
+                response.text, brand_name, brand_aliases, mention_result=mention,
+            )
 
             result = ScanResult(
                 scan_id=scan_id,
                 query_id=query_id,
                 provider=provider.name,
                 raw_response=response.text,
-                brand_mentioned=mention.mentioned,
-                brand_position=mention.position,
-                brand_sentiment=mention.sentiment,
-                brand_context=mention.context,
+                brand_mentioned=brands.your_brand_mentioned,
+                brand_position=brands.your_brand_position,
+                brand_sentiment=brands.your_brand_sentiment,
+                brand_context=brands.your_brand_context,
                 brand_cited=citation.brand_cited,
                 response_tokens=response.tokens_used,
                 latency_ms=response.latency_ms,
             )
             result.competitors_mentioned = competitors_found
             result.citations = citation.urls
+            result.brands_ranked = [
+                {"name": b.name, "position": b.position, "is_your_brand": b.is_your_brand}
+                for b in brands.brands
+            ]
         else:
             result = ScanResult(
                 scan_id=scan_id,
@@ -203,7 +203,7 @@ async def run_scan(project_id: int, scan_id: int) -> None:
         if scan is not None:
             scan.status = "completed"
             scan.completed_queries = len(tasks)
-            scan.completed_at = datetime.now(timezone.utc)
+            scan.completed_at = datetime.now(UTC)
             session.add(scan)
             session.commit()
 
@@ -257,23 +257,31 @@ async def run_single_query_scan(
                 "competitors_mentioned": [],
                 "citations": [],
                 "brand_cited": False,
+                "brands_ranked": [],
                 "error": True,
             }
 
         mention = detector.detect(response.text)
         competitors_found = detector.detect_competitors(response.text, competitors)
         citation = parse_citations(response.text, response.citations, brand_domain)
+        brands = extract_brands(
+            response.text, brand_name, brand_aliases, mention_result=mention,
+        )
 
         return {
             "provider": provider.name,
             "raw_response": response.text,
-            "brand_mentioned": mention.mentioned,
-            "brand_position": mention.position,
-            "brand_sentiment": mention.sentiment,
-            "brand_context": mention.context,
+            "brand_mentioned": brands.your_brand_mentioned,
+            "brand_position": brands.your_brand_position,
+            "brand_sentiment": brands.your_brand_sentiment,
+            "brand_context": brands.your_brand_context,
             "competitors_mentioned": competitors_found,
             "citations": citation.urls,
             "brand_cited": citation.brand_cited,
+            "brands_ranked": [
+                {"name": b.name, "position": b.position, "is_your_brand": b.is_your_brand}
+                for b in brands.brands
+            ],
             "latency_ms": response.latency_ms,
             "error": False,
         }
@@ -291,6 +299,6 @@ def _fail_scan(engine, scan_id: int, message: str) -> None:
         if scan is not None:
             scan.status = "failed"
             scan.error_message = message
-            scan.completed_at = datetime.now(timezone.utc)
+            scan.completed_at = datetime.now(UTC)
             session.add(scan)
             session.commit()

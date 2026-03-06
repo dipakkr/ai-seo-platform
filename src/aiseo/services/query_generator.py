@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import structlog
 
-from aiseo.config import get_settings
+from aiseo.config import get_effective_api_key, get_settings
 
 logger = structlog.get_logger()
 
@@ -206,10 +206,14 @@ async def generate_all_queries(
 
 async def _call_llm_for_queries(prompt: str, settings) -> str:
     """Call the first available LLM for query generation."""
-    if settings.openai_api_key:
+    openai_key = get_effective_api_key("openai_api_key") or settings.openai_api_key
+    anthropic_key = get_effective_api_key("anthropic_api_key") or settings.anthropic_api_key
+    google_key = get_effective_api_key("google_api_key") or settings.google_api_key
+
+    if openai_key:
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        client = AsyncOpenAI(api_key=openai_key)
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
@@ -218,10 +222,10 @@ async def _call_llm_for_queries(prompt: str, settings) -> str:
         )
         return response.choices[0].message.content
 
-    if settings.anthropic_api_key:
+    if anthropic_key:
         from anthropic import AsyncAnthropic
 
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = AsyncAnthropic(api_key=anthropic_key)
         response = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
@@ -229,10 +233,10 @@ async def _call_llm_for_queries(prompt: str, settings) -> str:
         )
         return response.content[0].text
 
-    if settings.google_api_key:
+    if google_key:
         from google import genai
 
-        client = genai.Client(api_key=settings.google_api_key)
+        client = genai.Client(api_key=google_key)
         response = await client.aio.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt,

@@ -1,5 +1,9 @@
 """Settings via pydantic-settings, loads from .env file."""
 
+from __future__ import annotations
+
+from contextvars import ContextVar, Token
+
 from pydantic_settings import BaseSettings
 
 
@@ -33,3 +37,33 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return cached settings instance."""
     return Settings()
+
+
+_request_api_key_overrides: ContextVar[dict[str, str]] = ContextVar(
+    "request_api_key_overrides",
+    default={},
+)
+
+
+def set_request_api_key_overrides(overrides: dict[str, str]) -> Token:
+    """Set request-scoped API key overrides from incoming headers."""
+    return _request_api_key_overrides.set(overrides)
+
+
+def reset_request_api_key_overrides(token: Token) -> None:
+    """Reset request-scoped API key overrides."""
+    _request_api_key_overrides.reset(token)
+
+
+def get_effective_api_key(setting_name: str) -> str | None:
+    """Get API key from request overrides first, then server settings."""
+    override = _request_api_key_overrides.get().get(setting_name)
+    if override:
+        return override
+    settings = get_settings()
+    return getattr(settings, setting_name, None)
+
+
+def get_request_api_key_override(setting_name: str) -> str | None:
+    """Get API key override provided in the current request context only."""
+    return _request_api_key_overrides.get().get(setting_name)

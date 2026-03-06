@@ -1,10 +1,68 @@
 @import "tailwindcss";
 
+:root {
+  --app-bg: #f8f8f8;
+  --panel-bg: #ffffff;
+  --panel-border: #e6e6e6;
+  --text-strong: #111111;
+  --text-muted: #6b7280;
+  --accent: #111111;
+  --accent-soft: #f2f2f2;
+  --success: #0f766e;
+  --danger: #b91c1c;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: "Geist", "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 0% 0%, #f2f2f2 0, transparent 25%),
+    radial-gradient(circle at 100% 0%, #f0f0f0 0, transparent 20%),
+    var(--app-bg);
+  color: var(--text-strong);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.surface {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+}
+
+.surface-muted {
+  background: #fafafa;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid #000;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: #000;
+}
+
+.btn-secondary {
+  background: #fff;
+  color: var(--text-strong);
+  border: 1px solid var(--panel-border);
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background: #fafafa;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  cursor: not-allowed;
 }

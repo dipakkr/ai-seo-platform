@@ -12,7 +12,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from aiseo.config import get_settings
+from aiseo.config import get_request_api_key_override, get_settings
 from aiseo.providers.base import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -24,16 +24,15 @@ class PerplexityProvider(LLMProvider):
     name = "perplexity"
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._api_key = settings.perplexity_api_key
+        self._default_api_key = get_settings().perplexity_api_key
 
     def is_configured(self) -> bool:
         """Check if the Perplexity API key is set."""
-        return self._api_key is not None and len(self._api_key) > 0
+        return bool(get_request_api_key_override("perplexity_api_key") or self._default_api_key)
 
-    def _get_client(self) -> AsyncOpenAI:
+    def _get_client(self, api_key: str) -> AsyncOpenAI:
         return AsyncOpenAI(
-            api_key=self._api_key,
+            api_key=api_key,
             base_url="https://api.perplexity.ai",
         )
 
@@ -45,10 +44,11 @@ class PerplexityProvider(LLMProvider):
     )
     async def query(self, prompt: str) -> LLMResponse:
         """Send a query to Perplexity Sonar and return structured response."""
-        if not self.is_configured():
+        api_key = get_request_api_key_override("perplexity_api_key") or self._default_api_key
+        if not api_key:
             raise RuntimeError("Perplexity API key is not configured")
 
-        client = self._get_client()
+        client = self._get_client(api_key)
         start = time.perf_counter()
 
         try:

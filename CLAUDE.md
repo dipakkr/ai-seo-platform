@@ -10,7 +10,7 @@
 
 ## What This Project Does
 
-GEOkit lets a SaaS founder paste their website URL and instantly see:
+AI SEO Platform lets a SaaS founder paste their website URL and instantly see:
 1. How visible their brand is across AI search engines (ChatGPT, Perplexity, Gemini, Claude)
 2. Which buyer-intent queries mention them (or don't)
 3. Where competitors are visible but they're not
@@ -36,7 +36,7 @@ The core user flow is: **Paste URL → Auto-extract brand → Auto-generate quer
 ## Project Structure
 
 ```
-geokit/
+ai-seo-platform/
 ├── CLAUDE.md                    # This file — project blueprint
 ├── README.md                    # Public-facing docs
 ├── pyproject.toml               # Python package config (use hatchling)
@@ -45,7 +45,7 @@ geokit/
 ├── .env.example                 # All BYOK API keys
 │
 ├── src/
-│   └── geokit/
+│   └── aiseo/
 │       ├── __init__.py
 │       ├── main.py              # FastAPI app factory
 │       ├── cli.py               # Typer CLI entry point
@@ -175,7 +175,7 @@ postgres = ["asyncpg", "psycopg2-binary"]
 geokit = "geokit.cli:app"
 ```
 
-#### 1.2 Config (`src/geokit/config.py`)
+#### 1.2 Config (`src/aiseo/config.py`)
 
 Use pydantic-settings to load from `.env`. All API keys are optional — the tool works with whatever keys the user provides.
 
@@ -207,7 +207,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_prefix": "GEOKIT_"}
 ```
 
-#### 1.3 Data Models (`src/geokit/models/`)
+#### 1.3 Data Models (`src/aiseo/models/`)
 
 Use SQLModel (SQLAlchemy + Pydantic hybrid). Key models:
 
@@ -272,7 +272,7 @@ class Opportunity(SQLModel, table=True):
     recommendation: str               # actionable text recommendation
 ```
 
-#### 1.4 Brand Extractor (`src/geokit/services/brand_extractor.py`)
+#### 1.4 Brand Extractor (`src/aiseo/services/brand_extractor.py`)
 
 This is the magic onboarding step. Input: URL. Output: complete brand profile.
 
@@ -306,7 +306,7 @@ Website content:
 
 Use whichever LLM key the user has configured. Preference order: OpenAI > Anthropic > Gemini.
 
-#### 1.5 Query Generator (`src/geokit/services/query_generator.py`)
+#### 1.5 Query Generator (`src/aiseo/services/query_generator.py`)
 
 Generates buyer-intent queries from the brand profile. Four intent categories:
 

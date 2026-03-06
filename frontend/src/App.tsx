@@ -1,9 +1,10 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProjectSetup from './pages/ProjectSetup'
 import Dashboard from './pages/Dashboard'
 import ScanResults from './pages/ScanResults'
 import Opportunities from './pages/Opportunities'
+import IntegrationsSettings from './pages/IntegrationsSettings'
 
 function App() {
   return (
@@ -11,6 +12,8 @@ function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<ProjectSetup />} />
         <Route path="/projects/:id" element={<Dashboard />} />
+        <Route path="/settings" element={<Navigate to="/settings/integrations" replace />} />
+        <Route path="/settings/integrations" element={<IntegrationsSettings />} />
         <Route path="/scans/:id" element={<ScanResults />} />
         <Route path="/scans/:id/opportunities" element={<Opportunities />} />
       </Route>

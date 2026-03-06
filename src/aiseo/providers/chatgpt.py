@@ -1,7 +1,7 @@
 """ChatGPT provider using OpenAI Responses API with web_search."""
 
-import time
 import logging
+import time
 
 from openai import AsyncOpenAI, APIError, RateLimitError
 from tenacity import (
@@ -11,7 +11,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 
-from aiseo.config import get_settings
+from aiseo.config import get_request_api_key_override, get_settings
 from aiseo.providers.base import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -23,12 +23,12 @@ class ChatGPTProvider(LLMProvider):
     name = "chatgpt"
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._api_key = settings.openai_api_key
+        self._default_api_key = get_settings().openai_api_key
 
     def is_configured(self) -> bool:
         """Check if OpenAI API key is set."""
-        return self._api_key is not None and len(self._api_key) > 0
+        api_key = get_request_api_key_override("openai_api_key") or self._default_api_key
+        return bool(api_key)
 
     @retry(
         retry=retry_if_exception_type(RateLimitError),
@@ -38,10 +38,11 @@ class ChatGPTProvider(LLMProvider):
     )
     async def query(self, prompt: str) -> LLMResponse:
         """Send a query to ChatGPT with web search and return structured response."""
-        if not self.is_configured():
+        api_key = get_request_api_key_override("openai_api_key") or self._default_api_key
+        if not api_key:
             raise RuntimeError("OpenAI API key is not configured")
 
-        client = AsyncOpenAI(api_key=self._api_key)
+        client = AsyncOpenAI(api_key=api_key)
         start_ms = _now_ms()
 
         try:

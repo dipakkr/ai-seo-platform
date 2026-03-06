@@ -1,10 +1,14 @@
 import type {
+  BrandRankingEntry,
   Project,
   ProjectWithQueries,
+  Query,
+  QueryRankings,
   Scan,
   ScanResult,
   Opportunity,
 } from './types'
+import { getIntegrationHeaders } from './integrations'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -13,6 +17,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...getIntegrationHeaders(),
       ...options?.headers,
     },
     ...options,
@@ -55,6 +60,10 @@ export async function getScanResults(scanId: number): Promise<ScanResult[]> {
   return request(`/api/v1/scans/${scanId}/results`)
 }
 
+export async function getScanRankings(scanId: number): Promise<QueryRankings[]> {
+  return request(`/api/v1/scans/${scanId}/rankings`)
+}
+
 export async function getScanOpportunities(scanId: number): Promise<Opportunity[]> {
   return request(`/api/v1/scans/${scanId}/opportunities`)
 }
@@ -73,6 +82,7 @@ export interface SingleQueryResult {
   competitors_mentioned: string[]
   citations: string[]
   brand_cited: boolean
+  brands_ranked: BrandRankingEntry[]
   latency_ms: number | null
   error: boolean
 }
@@ -86,5 +96,57 @@ export interface SingleQueryScanResponse {
 export async function scanSingleQuery(queryId: number): Promise<SingleQueryScanResponse> {
   return request(`/api/v1/queries/${queryId}/scan`, {
     method: 'POST',
+  })
+}
+
+export async function addQuery(
+  projectId: number,
+  text: string,
+  intentCategory: string
+): Promise<Query> {
+  return request(`/api/v1/projects/${projectId}/queries`, {
+    method: 'POST',
+    body: JSON.stringify({ text, intent_category: intentCategory }),
+  })
+}
+
+export async function updateQuery(
+  queryId: number,
+  data: { text?: string; intent_category?: string; is_active?: boolean }
+): Promise<Query> {
+  return request(`/api/v1/queries/${queryId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteQuery(queryId: number): Promise<void> {
+  const url = `${BASE_URL}/api/v1/queries/${queryId}`
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...getIntegrationHeaders(),
+    },
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`API error ${res.status}: ${body}`)
+  }
+}
+
+export interface IntegrationTestResult {
+  provider: string
+  configured: boolean
+  success: boolean
+  model: string | null
+  latency_ms: number | null
+  error: string | null
+}
+
+export async function testIntegration(provider: string): Promise<IntegrationTestResult> {
+  return request('/api/v1/integrations/test', {
+    method: 'POST',
+    body: JSON.stringify({ provider }),
   })
 }
