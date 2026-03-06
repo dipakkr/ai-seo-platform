@@ -1,0 +1,40 @@
+services:
+  aiseo:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - redis
+    command: uvicorn aiseo.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  worker:
+    build: .
+    env_file: .env
+    depends_on:
+      - redis
+    command: celery -A aiseo.tasks worker --loglevel=info
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # Optional: React dashboard
+  # Uncomment to enable the frontend service
+  # frontend:
+  #   build: ./frontend
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - VITE_API_URL=http://localhost:8000
+  #   depends_on:
+  #     - aiseo
+
+volumes:
+  redis_data:

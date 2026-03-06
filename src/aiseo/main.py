@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from aiseo.models import create_db_and_tables
 
@@ -28,7 +29,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # API routes will be added in Phase 4
+    # CORS middleware — allow all origins for development
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Include API routes
+    from aiseo.api import api_router
+
+    app.include_router(api_router)
+
     @app.get("/health")
     async def health():
         return {"status": "ok", "version": "0.1.0"}
