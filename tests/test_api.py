@@ -241,6 +241,27 @@ class TestQueryManagement:
         delete_resp = client.delete(f"/api/v1/queries/{query['id']}")
         assert delete_resp.status_code == 204
 
+    def test_add_query_with_search_volume(self, client, engine):
+        with Session(engine) as s:
+            project = Project(url="https://acme.com", brand_name="Acme")
+            s.add(project)
+            s.commit()
+            s.refresh(project)
+            project_id = project.id
+
+        resp = client.post(
+            f"/api/v1/projects/{project_id}/queries",
+            json={
+                "text": "best ai seo tools",
+                "intent_category": "discovery",
+                "search_volume": 1200,
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["search_volume"] == 1200
+        assert data["volume_source"] == "csv"
+
     def test_add_query_project_not_found(self, client):
         resp = client.post(
             "/api/v1/projects/999/queries",
@@ -357,6 +378,40 @@ class TestTriggerScan:
         resp = client.post(f"/api/v1/projects/{project_id}/scan")
         assert resp.status_code == 400
         assert "No active queries" in resp.json()["detail"]
+
+    def test_trigger_scan_applies_demo_query_limit(self, client, engine):
+        with Session(engine) as s:
+            project = Project(url="https://acme.com", brand_name="Acme")
+            s.add(project)
+            s.commit()
+            s.refresh(project)
+
+            for i in range(12):
+                s.add(
+                    Query(
+                        project_id=project.id,
+                        text=f"query {i}",
+                        intent_category="discovery",
+                        is_active=True,
+                    )
+                )
+            s.commit()
+            project_id = project.id
+
+        with patch("aiseo.api.scans._redis_available", return_value=False), \
+             patch("aiseo.services.visibility_scanner.run_scan", new_callable=AsyncMock) as mock_run, \
+             patch("aiseo.services.scorer.compute_visibility_score"), \
+             patch("aiseo.services.opportunity_engine.compute_opportunities"):
+            mock_run.return_value = None
+            resp = client.post(f"/api/v1/projects/{project_id}/scan")
+
+        assert resp.status_code == 202
+        scan_id = resp.json()["scan_id"]
+
+        with Session(engine) as s:
+            scan = s.get(Scan, scan_id)
+            assert scan is not None
+            assert scan.total_queries == 10
 
 
 class TestGetScan:

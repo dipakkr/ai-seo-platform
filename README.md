@@ -1,165 +1,134 @@
-# AI SEO Platform
+<div align="center">
 
-**Track and optimize your brand's visibility across AI search engines**
+### Open Source AI SEO Platform
 
-Track how ChatGPT, Perplexity, Gemini, and Claude talk about your product — and find opportunities to get visible.
+**Track how ChatGPT, Perplexity, Gemini, Claude, and Grok talk about your product.**
 
-## Why?
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-black.svg)](https://python.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-black.svg)](CONTRIBUTING.md)
 
-AI search engines are the new discovery channel. If ChatGPT doesn't recommend your product when someone asks "best [your category] tools", you're invisible to a growing audience. AI SEO Platform tells you exactly where you stand — and what to fix.
+[Live Demo](https://github.com/dipakkr/ai-seo-platform) · [Report Bug](https://github.com/dipakkr/ai-seo-platform/issues) · [Request Feature](https://github.com/dipakkr/ai-seo-platform/issues)
+
+</div>
+
+---
+
+![AI SEO Platform — Onboarding](docs/sr-onboarding.png)
+
+![AI SEO Platform — Query Details](docs/screenshot-query-details.png)
+
+---
+
+## Why this exists
+
+AI search is the new Google. When a buyer asks ChatGPT *"best project management tool for startups"*, they get a list — not a page of links. If you're not on that list, you're invisible to a growing share of your market.
+
+Traditional SEO tools track Google rankings. **None of them track AI rankings.**
+
+AI SEO Platform is the open-source fix. Paste your URL → get a full picture of how every major AI engine ranks your brand, which queries you're missing, and exactly which competitors are being recommended in your place.
+
+---
+
+## What it does
+
+1. **Paste your URL** — auto-extracts your brand name, category, competitors, and key features
+2. **Generates queries** — builds 50+ buyer-intent prompts across discovery, comparison, problem, and recommendation categories
+3. **Scans 5 AI engines** — ChatGPT, Perplexity, Gemini, Claude, and Grok run in parallel
+4. **Scores visibility** — 0–100 score weighted by search volume, broken down per engine and query type
+5. **Surfaces opportunities** — ranks gaps by `search_volume × visibility gap` so you fix the highest-impact blind spots first
+
+---
+
+## Screenshots
+
+**Provider selection & visibility scores**
+![Dashboard — provider selection, visibility score breakdown and blind spots](docs/screenshot-dashboard.png)
+
+**Blind spots + visibility matrix**
+![Visibility matrix — query × provider grid showing Miss/Hit with position](docs/screenshot-visibility-matrix.png)
+
+**Full sidebar with multiple projects**
+![Sidebar — multi-project navigation](docs/screenshot-sidebar.png)
+
+---
 
 ## Quick Start
 
-```bash
-pip install aiseo
-
-# Set at least one LLM API key
-export AISEO_OPENAI_API_KEY=sk-...
-
-# Scan your site
-aiseo scan https://yoursite.com
-```
-
-Or run with Docker:
+### Docker (recommended)
 
 ```bash
+git clone https://github.com/dipakkr/ai-seo-platform.git
+cd ai-seo-platform
+
 cp .env.example .env
-# Edit .env with your API keys
+# Add at least one LLM API key — see .env.example
+
 docker compose up
 ```
 
-Then open `http://localhost:3000` for the dashboard, or `http://localhost:8000/docs` for the API.
+Open **http://localhost:3000**
 
-## Features
+### Local dev
 
-- **Auto Brand Detection** — paste a URL, AI SEO Platform extracts brand name, competitors, features, and category
-- **Multi-LLM Scanning** — checks visibility across ChatGPT, Perplexity, Gemini, and Claude
-- **AI Visibility Score** — 0-100, broken down by LLM and query intent category
-- **Opportunity Engine** — prioritized visibility gaps ranked by search volume x impact
-- **Search Volume** — pluggable adapters: Google Ads, SEMrush, Ahrefs, autocomplete (free), or CSV
-- **Dashboard** — React + Tailwind UI for visual analysis
-- **Self-Hosted** — Docker Compose, runs on your own infrastructure
+```bash
+# Backend
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+python -m spacy download en_core_web_sm
+uvicorn aiseo.main:app --reload
 
-## How It Works
-
-1. **Paste URL** — AI SEO Platform scrapes your site and uses an LLM to extract brand profile, competitors, and features
-2. **Generate Queries** — auto-generates 50+ buyer-intent queries across 4 categories: discovery, comparison, problem, recommendation
-3. **Scan LLMs** — sends each query to configured LLM providers with web search enabled
-4. **Detect Mentions** — fuzzy-matches your brand name (and aliases) in every response, extracts position, sentiment, citations
-5. **Score & Rank** — computes a 0-100 visibility score weighted by search volume, surfaces actionable opportunities
-
-## Architecture
-
-```
-URL → Brand Extractor → Query Generator → Visibility Scanner → Scorer → Opportunity Engine
-                                               |
-                              ┌────────────────┼────────────────┐
-                              │                │                │
-                          ChatGPT         Perplexity        Gemini        Claude
-                        (web search)      (Sonar API)     (grounding)   (training data)
+# Frontend (new terminal)
+cd frontend && npm install && npm run dev
 ```
 
-| Layer | Technology |
-|---|---|
-| Language | Python 3.11+ |
-| API | FastAPI |
-| Task Queue | Celery + Redis |
-| Database | SQLite (default) / PostgreSQL |
-| LLM SDKs | openai, anthropic, google-genai |
-| NLP | spaCy + rapidfuzz |
-| Frontend | React 18 + Tailwind CSS + Recharts |
+Open **http://localhost:5173** · API docs at **http://localhost:8000/docs**
 
-## API
-
-All endpoints are under `/api/v1`. Full OpenAPI docs at `/docs` when the server is running.
-
-```
-POST   /api/v1/projects              Create project from URL
-GET    /api/v1/projects               List projects
-GET    /api/v1/projects/:id           Get project with queries
-PATCH  /api/v1/projects/:id           Update brand profile
-
-POST   /api/v1/projects/:id/scan     Trigger a scan
-GET    /api/v1/scans/:id              Get scan status
-GET    /api/v1/scans/:id/results      Get per-query results
-GET    /api/v1/scans/:id/opportunities Get ranked opportunities
-
-GET    /api/v1/projects/:id/history   Scan history
-```
+---
 
 ## Configuration
 
-All settings are via environment variables (prefix `AISEO_`). Copy `.env.example` to `.env`:
+Add your API keys to `.env`. You only need **one** to start — the platform scans whichever providers you configure.
 
 ```bash
-# LLM Provider Keys (all optional — use what you have)
-AISEO_OPENAI_API_KEY=
-AISEO_ANTHROPIC_API_KEY=
-AISEO_GOOGLE_API_KEY=
-AISEO_PERPLEXITY_API_KEY=
-
-# Search Volume (optional)
-AISEO_SEMRUSH_API_KEY=
-AISEO_AHREFS_API_KEY=
-
-# Infrastructure
-AISEO_DATABASE_URL=sqlite:///aiseo.db
-AISEO_REDIS_URL=redis://localhost:6379/0
+AISEO_OPENAI_API_KEY=sk-...        # ChatGPT
+AISEO_ANTHROPIC_API_KEY=sk-ant-... # Claude
+AISEO_GOOGLE_API_KEY=AIza...       # Gemini
+AISEO_PERPLEXITY_API_KEY=pplx-...  # Perplexity
+AISEO_XAI_API_KEY=xai-...          # Grok
 ```
 
-AI SEO Platform works with whatever keys you provide. Only have an OpenAI key? It'll scan ChatGPT only. Add more keys to scan more LLMs.
+Keys can also be entered directly in the browser Settings page — they stay in `localStorage` and are never stored on the server.
 
-## Development
+---
+
+## Provider Support
+
+| Provider | Web Search | Notes |
+|---|---|---|
+| ChatGPT (GPT-4o mini) | ✓ Bing | Via OpenAI Responses API |
+| Perplexity (Sonar) | ✓ Native | Most real-time results |
+| Gemini (2.5 Flash) | ✓ Google Search grounding | Best for Google-indexed content |
+| Claude (Sonnet) | ✗ | Reflects training data presence |
+| Grok (Grok 3 Mini) | ✗ planned | xAI API, OpenAI-compatible |
+
+---
+
+## Stack
+
+Python + FastAPI · React 18 + TypeScript · Tailwind CSS v4 · SQLite / PostgreSQL · Celery + Redis · spaCy + rapidfuzz · Docker Compose
+
+---
+
+## Contributing
 
 ```bash
-# Clone and install
-git clone https://github.com/anthropics/ai-seo-platform.git
+git clone https://github.com/dipakkr/ai-seo-platform.git
 cd ai-seo-platform
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-
-# Download spaCy model
-python -m spacy download en_core_web_sm
-
-# Run API server
-uvicorn aiseo.main:app --reload
-
-# Run frontend (separate terminal)
-cd frontend && npm install && npm run dev
-
-# Run tests
-pytest
 ```
 
-## vs Paid Tools
+Good first issues: new search volume adapters · multi-language mention detection · CSV export · email digests
 
-| Feature | AI SEO Platform | Otterly.AI ($29/mo) | GenRank ($49/mo) | SE Visible |
-|---------|--------|---------------------|------------------|------------|
-| Open Source | Yes | No | No | No |
-| Auto Brand Detection | Yes | No | No | No |
-| Auto Query Generation | Yes | No | No | No |
-| Multi-LLM | 4 | 6 | 1 (ChatGPT) | 4 |
-| Search Volume | Pluggable (5 sources) | No | No | No |
-| Opportunity Ranking | Yes | Partial | No | Partial |
-| Self-Hosted | Yes | No | No | No |
-| Price | Free | $29/mo | $49/mo | Custom |
-
-## Project Structure
-
-```
-src/aiseo/
-  main.py               FastAPI app
-  config.py             Settings (pydantic-settings)
-  models/               SQLModel data models
-  services/             Core logic (brand extractor, scanner, scorer, etc.)
-  providers/            LLM integrations (ChatGPT, Perplexity, Gemini, Claude)
-  volume/               Search volume adapters
-  api/                  FastAPI routes
-  tasks/                Celery async tasks
-
-frontend/               React + Tailwind dashboard
-```
-
-## License
-
-MIT
+Please open an issue before submitting a large PR.

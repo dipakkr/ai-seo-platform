@@ -26,6 +26,7 @@ def get_scan_results(
     scan_id: int,
     provider: str | None = None,
     intent: str | None = None,
+    query_id: int | None = None,
     session: Session = Depends(get_session),
 ):
     """Get all ScanResult rows for a scan.
@@ -43,6 +44,9 @@ def get_scan_results(
     if provider:
         stmt = stmt.where(ScanResult.provider == provider)
 
+    if query_id is not None:
+        stmt = stmt.where(ScanResult.query_id == query_id)
+
     if intent:
         # Need to join with Query to filter by intent_category
         stmt = stmt.join(Query, ScanResult.query_id == Query.id).where(
@@ -50,12 +54,18 @@ def get_scan_results(
         )
 
     results = session.exec(stmt).all()
+    query_ids = {r.query_id for r in results}
+    query_map: dict[int, Query] = {}
+    if query_ids:
+        queries = session.exec(select(Query).where(Query.id.in_(query_ids))).all()
+        query_map = {q.id: q for q in queries}
 
     return [
         ScanResultResponse(
             id=r.id,
             scan_id=r.scan_id,
             query_id=r.query_id,
+            query_text=query_map.get(r.query_id).text if query_map.get(r.query_id) else None,
             provider=r.provider,
             raw_response=r.raw_response,
             brand_mentioned=r.brand_mentioned,

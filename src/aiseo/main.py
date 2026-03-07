@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
             "x-anthropic-api-key": "anthropic_api_key",
             "x-google-api-key": "google_api_key",
             "x-perplexity-api-key": "perplexity_api_key",
+            "x-xai-api-key": "xai_api_key",
         }
         overrides: dict[str, str] = {}
         for header_name, setting_name in headers_to_settings.items():

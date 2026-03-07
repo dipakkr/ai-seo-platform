@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from aiseo.api.schemas import (
+    ScanRequest,
     ScanResponse,
     ScanTriggerResponse,
     SingleQueryResultResponse,
@@ -21,6 +22,7 @@ from aiseo.models.scan import Scan
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["scans"])
+DEMO_SCAN_QUERY_LIMIT = 10
 
 
 def _redis_available() -> bool:
@@ -46,6 +48,7 @@ def _has_request_api_key_overrides() -> bool:
             "anthropic_api_key",
             "google_api_key",
             "perplexity_api_key",
+            "xai_api_key",
         )
     )
 
@@ -57,6 +60,7 @@ def _has_request_api_key_overrides() -> bool:
 )
 async def trigger_scan(
     project_id: int,
+    body: ScanRequest = ScanRequest(),
     session: Session = Depends(get_session),
 ):
     """Trigger a new visibility scan for a project.
@@ -70,19 +74,21 @@ async def trigger_scan(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Verify there are active queries
-    query_count = len(
-        session.exec(
-            select(Query).where(Query.project_id == project_id, Query.is_active == True)  # noqa: E712
-        ).all()
-    )
-    if query_count == 0:
+    active_queries = session.exec(
+        select(Query).where(Query.project_id == project_id, Query.is_active == True)  # noqa: E712
+    ).all()
+    if len(active_queries) == 0:
         raise HTTPException(
             status_code=400,
             detail="No active queries for this project. Add queries first.",
         )
 
+    # Use limit as an estimate; the scanner will update total_queries once
+    # smart query selection has run and the exact count is known.
+    estimated_count = min(len(active_queries), DEMO_SCAN_QUERY_LIMIT)
+
     # Create scan record
-    scan = Scan(project_id=project_id, status="pending", total_queries=query_count)
+    scan = Scan(project_id=project_id, status="pending", total_queries=estimated_count)
     session.add(scan)
     session.commit()
     session.refresh(scan)
@@ -93,7 +99,7 @@ async def trigger_scan(
         try:
             from aiseo.tasks.scan_task import run_scan_task
 
-            run_scan_task.delay(project_id, scan_id)
+            run_scan_task.delay(project_id, scan_id, body.providers)
             return ScanTriggerResponse(
                 scan_id=scan_id,
                 status="pending",
@@ -113,7 +119,7 @@ async def trigger_scan(
         from aiseo.services.scorer import compute_visibility_score
         from aiseo.services.opportunity_engine import compute_opportunities
 
-        await run_scan(project_id, scan_id)
+        await run_scan(project_id, scan_id, allowed_providers=body.providers)
 
         try:
             compute_visibility_score(scan_id)

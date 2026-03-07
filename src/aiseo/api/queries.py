@@ -32,6 +32,8 @@ def add_query(
         project_id=project_id,
         text=body.text,
         intent_category=body.intent_category,
+        search_volume=body.search_volume,
+        volume_source="csv" if body.search_volume is not None else None,
         is_active=True,
     )
     session.add(query)
@@ -64,6 +66,9 @@ def update_query(
         query.text = body.text
     if body.intent_category is not None:
         query.intent_category = body.intent_category
+    if body.search_volume is not None:
+        query.search_volume = body.search_volume
+        query.volume_source = "csv"
     if body.is_active is not None:
         query.is_active = body.is_active
 

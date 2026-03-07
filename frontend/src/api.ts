@@ -42,13 +42,27 @@ export async function createProject(url: string): Promise<ProjectWithQueries> {
   })
 }
 
+export async function updateProject(
+  id: number,
+  data: { brand_name?: string }
+): Promise<ProjectWithQueries> {
+  return request(`/api/v1/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
 export async function getProject(id: number): Promise<ProjectWithQueries> {
   return request(`/api/v1/projects/${id}`)
 }
 
-export async function triggerScan(projectId: number): Promise<{ scan_id: number; status: string }> {
+export async function triggerScan(
+  projectId: number,
+  providers?: string[],
+): Promise<{ scan_id: number; status: string }> {
   return request(`/api/v1/projects/${projectId}/scan`, {
     method: 'POST',
+    body: JSON.stringify(providers?.length ? { providers } : {}),
   })
 }
 
@@ -56,8 +70,16 @@ export async function getScan(scanId: number): Promise<Scan> {
   return request(`/api/v1/scans/${scanId}`)
 }
 
-export async function getScanResults(scanId: number): Promise<ScanResult[]> {
-  return request(`/api/v1/scans/${scanId}/results`)
+export async function getScanResults(
+  scanId: number,
+  options?: { queryId?: number }
+): Promise<ScanResult[]> {
+  const params = new URLSearchParams()
+  if (options?.queryId != null) {
+    params.set('query_id', String(options.queryId))
+  }
+  const query = params.toString()
+  return request(`/api/v1/scans/${scanId}/results${query ? `?${query}` : ''}`)
 }
 
 export async function getScanRankings(scanId: number): Promise<QueryRankings[]> {
@@ -102,17 +124,22 @@ export async function scanSingleQuery(queryId: number): Promise<SingleQueryScanR
 export async function addQuery(
   projectId: number,
   text: string,
-  intentCategory: string
+  intentCategory: string,
+  searchVolume?: number
 ): Promise<Query> {
   return request(`/api/v1/projects/${projectId}/queries`, {
     method: 'POST',
-    body: JSON.stringify({ text, intent_category: intentCategory }),
+    body: JSON.stringify({
+      text,
+      intent_category: intentCategory,
+      search_volume: searchVolume ?? null,
+    }),
   })
 }
 
 export async function updateQuery(
   queryId: number,
-  data: { text?: string; intent_category?: string; is_active?: boolean }
+  data: { text?: string; intent_category?: string; is_active?: boolean; search_volume?: number }
 ): Promise<Query> {
   return request(`/api/v1/queries/${queryId}`, {
     method: 'PATCH',

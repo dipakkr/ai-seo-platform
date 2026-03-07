@@ -20,6 +20,7 @@ from aiseo.services.citation_parser import parse_citations
 from aiseo.services.mention_detector import MentionDetector
 
 logger = logging.getLogger(__name__)
+DEMO_SCAN_QUERY_LIMIT = 10
 
 
 def _get_configured_providers() -> list[LLMProvider]:
@@ -33,6 +34,7 @@ def _get_configured_providers() -> list[LLMProvider]:
     from aiseo.providers.chatgpt import ChatGPTProvider
     from aiseo.providers.claude import ClaudeProvider
     from aiseo.providers.gemini import GeminiProvider
+    from aiseo.providers.grok import GrokProvider
     from aiseo.providers.perplexity import PerplexityProvider
 
     for provider in (
@@ -40,6 +42,7 @@ def _get_configured_providers() -> list[LLMProvider]:
         PerplexityProvider(),
         GeminiProvider(),
         ClaudeProvider(),
+        GrokProvider(),
     ):
         if provider.is_configured():
             providers.append(provider)
@@ -57,7 +60,7 @@ def _extract_brand_domain(project: Project) -> str:
     return host
 
 
-async def run_scan(project_id: int, scan_id: int) -> None:
+async def run_scan(project_id: int, scan_id: int, allowed_providers: list[str] | None = None) -> None:
     """Run a full visibility scan for a project.
 
     Loads the project and its active queries, determines which LLM
@@ -79,9 +82,11 @@ async def run_scan(project_id: int, scan_id: int) -> None:
             _fail_scan(engine, scan_id, f"Project {project_id} not found")
             return
 
-        queries = session.exec(
-            select(Query).where(Query.project_id == project_id, Query.is_active == True)  # noqa: E712
-        ).all()
+        queries = list(
+            session.exec(
+                select(Query).where(Query.project_id == project_id, Query.is_active == True)  # noqa: E712
+            ).all()
+        )
 
         if not queries:
             _fail_scan(engine, scan_id, "No active queries for project")
@@ -92,10 +97,17 @@ async def run_scan(project_id: int, scan_id: int) -> None:
         brand_aliases = project.brand_aliases
         brand_domain = _extract_brand_domain(project)
         competitors = project.competitors
-        query_data = [(q.id, q.text) for q in queries]
+
+    # Smart selection: rank by search volume × intent weight, pick top N
+    # (runs outside the session so it can open its own session to write volumes)
+    from aiseo.services.query_selector import select_queries
+    queries = await select_queries(queries, DEMO_SCAN_QUERY_LIMIT, engine)
+    query_data = [(q.id, q.text) for q in queries]
 
     # --- Resolve providers ---
     providers = _get_configured_providers()
+    if allowed_providers:
+        providers = [p for p in providers if p.name in allowed_providers]
     if not providers:
         _fail_scan(engine, scan_id, "No LLM providers configured. Set at least one API key.")
         return

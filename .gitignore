@@ -12,6 +12,7 @@ dist/
 build/
 .venv/
 venv/
+.ruff_cache/
 
 # Database
 *.db

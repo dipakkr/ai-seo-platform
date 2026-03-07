@@ -18,7 +18,7 @@ from aiseo.providers.base import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "gemini-2.0-flash"
+_MODEL = "gemini-2.5-flash-lite"
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:

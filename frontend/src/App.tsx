@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import ScanResults from './pages/ScanResults'
 import Opportunities from './pages/Opportunities'
 import IntegrationsSettings from './pages/IntegrationsSettings'
+import QueryDetails from './pages/QueryDetails'
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<ProjectSetup />} />
         <Route path="/projects/:id" element={<Dashboard />} />
+        <Route path="/projects/:id/queries/:queryId" element={<QueryDetails />} />
         <Route path="/settings" element={<Navigate to="/settings/integrations" replace />} />
         <Route path="/settings/integrations" element={<IntegrationsSettings />} />
         <Route path="/scans/:id" element={<ScanResults />} />

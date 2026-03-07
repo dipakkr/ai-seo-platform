@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from aiseo.api.schemas import OpportunityResponse
 from aiseo.models.base import get_session
 from aiseo.models.opportunity import Opportunity
+from aiseo.models.query import Query
 from aiseo.models.scan import Scan
 
 router = APIRouter(tags=["opportunities"])
@@ -47,11 +48,19 @@ def get_opportunities(
 
     opportunities = session.exec(stmt).all()
 
+    # Fetch query texts in one query
+    query_ids = {o.query_id for o in opportunities}
+    query_map: dict[int, str] = {}
+    if query_ids:
+        queries = session.exec(select(Query).where(Query.id.in_(query_ids))).all()
+        query_map = {q.id: q.text for q in queries}
+
     return [
         OpportunityResponse(
             id=o.id,
             scan_id=o.scan_id,
             query_id=o.query_id,
+            query_text=query_map.get(o.query_id),
             opportunity_type=o.opportunity_type,
             impact_score=o.impact_score,
             visibility_gap=o.visibility_gap,

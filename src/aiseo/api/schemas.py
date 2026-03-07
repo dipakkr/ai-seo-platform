@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field
 # Project schemas
 # ---------------------------------------------------------------------------
 
+class ScanRequest(BaseModel):
+    """Optional body for scan trigger — lets the caller pick which providers to run."""
+    providers: list[str] | None = None  # e.g. ["chatgpt", "perplexity"]; None = all configured
+
+
 class ProjectCreateRequest(BaseModel):
     """Request body to create a project from a URL."""
     url: str
@@ -30,12 +35,14 @@ class QueryCreateRequest(BaseModel):
     """Request body to add a custom query."""
     text: str
     intent_category: str = "discovery"
+    search_volume: int | None = None
 
 
 class QueryUpdateRequest(BaseModel):
     """Partial update for a query."""
     text: str | None = None
     intent_category: str | None = None
+    search_volume: int | None = None
     is_active: bool | None = None
 
 
@@ -109,6 +116,7 @@ class ScanResultResponse(BaseModel):
     id: int
     scan_id: int
     query_id: int
+    query_text: str | None = None
     provider: str
     raw_response: str = ""
     brand_mentioned: bool = False
@@ -208,6 +216,7 @@ class OpportunityResponse(BaseModel):
     id: int
     scan_id: int
     query_id: int
+    query_text: str | None = None
     opportunity_type: str
     impact_score: float
     visibility_gap: float

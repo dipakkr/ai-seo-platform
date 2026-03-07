@@ -47,6 +47,12 @@ const PROVIDERS: Array<{ key: ProviderKey; label: string; apiProvider: string; h
     apiProvider: 'perplexity',
     hint: 'Used by Perplexity provider for ranking scans.',
   },
+  {
+    key: 'xai_api_key',
+    label: 'xAI (Grok)',
+    apiProvider: 'grok',
+    hint: 'Used by Grok provider (xAI API). Get key at console.x.ai.',
+  },
 ]
 
 export default function IntegrationsSettings() {
@@ -56,6 +62,15 @@ export default function IntegrationsSettings() {
   const [results, setResults] = useState<Record<string, IntegrationTestResult>>({})
 
   const anyKey = useMemo(() => Object.values(keys).some((value) => value.trim()), [keys])
+
+  function onKeyChange(field: ProviderKey, value: string) {
+    const updated = { ...keys, [field]: value }
+    setKeys(updated)
+    // Persist immediately so headers are sent on next request (including Test)
+    saveIntegrationKeys(updated)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1200)
+  }
 
   function onSave() {
     saveIntegrationKeys(keys)
@@ -69,6 +84,7 @@ export default function IntegrationsSettings() {
       anthropic_api_key: '',
       google_api_key: '',
       perplexity_api_key: '',
+      xai_api_key: '',
     }
     setKeys(cleared)
     saveIntegrationKeys(cleared)
@@ -154,7 +170,7 @@ export default function IntegrationsSettings() {
                 <input
                   type="password"
                   value={keys[provider.key]}
-                  onChange={(e) => setKeys((prev) => ({ ...prev, [provider.key]: e.target.value }))}
+                  onChange={(e) => onKeyChange(provider.key, e.target.value)}
                   placeholder="sk-..."
                   className="mt-3 w-full h-10 rounded-md border border-neutral-300 px-3 text-sm outline-none focus:border-neutral-900"
                 />

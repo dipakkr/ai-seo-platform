@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     google_api_key: str | None = None
     perplexity_api_key: str | None = None
+    xai_api_key: str | None = None
 
     # Search Volume Keys (all optional)
     google_ads_developer_token: str | None = None
