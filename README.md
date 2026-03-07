@@ -1,6 +1,6 @@
 <div align="center">
 
-### Open Source AI SEO Platform
+### Open Source Generative Engine Optimization (GEO) Platform
 
 **Track how ChatGPT, Perplexity, Gemini, Claude, and Grok talk about your product.**
 
